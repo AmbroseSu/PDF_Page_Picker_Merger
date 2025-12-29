@@ -326,6 +326,7 @@
 
 import os
 import re
+import sys
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from pypdf import PdfReader, PdfWriter
@@ -400,19 +401,86 @@ def format_pages_for_display(pages_0_based):
     return ",".join(out)
 
 
+LANG = {
+    "en": {
+        "choose_pdf": "Choose PDF",
+        "no_pdf": "No PDF selected",
+        "pick_pages": "Pick pages",
+        "pages_hint": "Pages (e.g. 2 | 2-5 | 2,4,7-9):",
+        "enter_pages": "Enter pages…",
+        "add": "Add",
+        "tip_select_pdf": "Tip: Select a PDF first.",
+        "tip_selected_pdf": "Selected: {name}. Enter pages 1..{n} then click Add.",
+        "merge_order": "Merge order",
+        "total_pages": "Total pages: {n}",
+        "pdf_col": "PDF",
+        "pages_col": "Pages",
+        "actions": "Actions",
+        "move_up": "Move Up",
+        "move_down": "Move Down",
+        "remove_selected": "Remove Selected",
+        "clear_all": "Clear All",
+        "export_pdf": "Export PDF",
+        "ready": "Ready.",
+        "lang": "Language",
+        "mode": "Theme",
+    },
+    "vi": {
+        "choose_pdf": "Chọn PDF",
+        "no_pdf": "Chưa chọn PDF",
+        "pick_pages": "Chọn trang",
+        "pages_hint": "Trang (vd: 2 | 2-5 | 2,4,7-9):",
+        "enter_pages": "Nhập trang…",
+        "add": "Thêm",
+        "tip_select_pdf": "Gợi ý: Hãy chọn PDF trước.",
+        "tip_selected_pdf": "Đã chọn: {name}. Nhập trang 1..{n} rồi bấm Thêm.",
+        "merge_order": "Thứ tự gộp",
+        "total_pages": "Tổng trang: {n}",
+        "pdf_col": "PDF",
+        "pages_col": "Trang",
+        "actions": "Thao tác",
+        "move_up": "Lên",
+        "move_down": "Xuống",
+        "remove_selected": "Xoá mục chọn",
+        "clear_all": "Xoá hết",
+        "export_pdf": "Xuất PDF",
+        "ready": "Sẵn sàng.",
+        "lang": "Ngôn ngữ",
+        "mode": "Giao diện",
+    },
+}
+
+def tr(lang: str, key: str, **kwargs) -> str:
+    s = LANG.get(lang, LANG["en"]).get(key, key)
+    return s.format(**kwargs) if kwargs else s
+
+
 def count_pages(pages_0_based):
     return len(pages_0_based)
+
+def resource_path(rel_path: str) -> str:
+    # khi chạy .py và khi chạy .exe (PyInstaller)
+    if getattr(sys, 'frozen', False):
+        return os.path.join(sys._MEIPASS, rel_path)
+    return os.path.join(os.path.dirname(__file__), rel_path)
 
 
 class PdfMergePickerCTK(ctk.CTk):
     def __init__(self):
         super().__init__()
 
+        try:
+            self.iconbitmap(resource_path("favicon.ico"))
+        except Exception:
+            pass
+
         ctk.set_appearance_mode("Light")
         ctk.set_default_color_theme("blue")
 
         self.btn_font = ctk.CTkFont(size=13, weight="bold")
         self.menu_font = ctk.CTkFont(size=13, weight="bold")
+
+        self.lang = "en"  # đổi thành "vi" nếu muốn mặc định tiếng Việt
 
         self.title("PDF Page Picker & Merger")
         self.geometry("1000x640")
@@ -436,13 +504,25 @@ class PdfMergePickerCTK(ctk.CTk):
         top.grid_columnconfigure(1, weight=1)
 
         self.btn_choose = ctk.CTkButton(
-            top, text="Choose PDF", width=140, height=36,
+            top, text=tr(self.lang, "choose_pdf"), width=140, height=36,
             command=self.choose_pdf, font=self.btn_font
         )
         self.btn_choose.grid(row=0, column=0, padx=12, pady=12, sticky="w")
 
-        self.lbl_pdf = ctk.CTkLabel(top, text="No PDF selected", anchor="w")
+        self.lbl_pdf = ctk.CTkLabel(top, text=tr(self.lang, "no_pdf"), anchor="w")
         self.lbl_pdf.grid(row=0, column=1, padx=10, pady=12, sticky="ew")
+
+        self.lbl_lang = ctk.CTkLabel(top, text=tr(self.lang, "lang"))
+        self.lbl_lang.grid(row=0, column=2, padx=(10, 6), pady=12, sticky="e")
+
+        self.lang_menu = ctk.CTkOptionMenu(
+            top, values=["EN", "VI"],
+            width=90, font=self.menu_font, anchor="center",
+            command=self.change_language
+        )
+        self.lang_menu.configure(dropdown_font=self.menu_font)
+        self.lang_menu.set("EN" if self.lang == "en" else "VI")
+        self.lang_menu.grid(row=0, column=3, padx=(0, 12), pady=12, sticky="e")
 
         self.mode = ctk.CTkOptionMenu(
             top,
@@ -454,33 +534,30 @@ class PdfMergePickerCTK(ctk.CTk):
         )
         self.mode.configure(dropdown_font=self.menu_font)
         self.mode.set("Light")
-        self.mode.grid(row=0, column=2, padx=12, pady=12, sticky="e")
+        self.mode.grid(row=0, column=4, padx=12, pady=12, sticky="e")
 
         # Picker card
         picker = ctk.CTkFrame(self, corner_radius=16, fg_color=("gray95", "gray15"))
         picker.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 12))
         picker.grid_columnconfigure(1, weight=1)
 
-        title = ctk.CTkLabel(picker, text="Pick pages", font=ctk.CTkFont(size=16, weight="bold"))
-        title.grid(row=0, column=0, columnspan=3, padx=16, pady=(14, 6), sticky="w")
+        self.lbl_pick_title = ctk.CTkLabel(picker, text=tr(self.lang, "pick_pages"), font=ctk.CTkFont(size=16, weight="bold"))
+        self.lbl_pick_title.grid(row=0, column=0, columnspan=3, padx=16, pady=(14, 6), sticky="w")
 
-        ctk.CTkLabel(picker, text="Pages (e.g. 2 | 2-5 | 2,4,7-9):").grid(
-            row=1, column=0, padx=16, pady=(0, 10), sticky="w"
-        )
+        self.lbl_pages_hint = ctk.CTkLabel(picker, text=tr(self.lang, "pages_hint"))
+        self.lbl_pages_hint.grid(row=1, column=0, padx=16, pady=(0, 10), sticky="w")
 
-        self.entry_pages = ctk.CTkEntry(picker, placeholder_text="Enter pages…", height=36)
+        self.entry_pages = ctk.CTkEntry(picker, placeholder_text=tr(self.lang, ""), height=36)
         self.entry_pages.grid(row=1, column=1, padx=10, pady=(0, 10), sticky="ew")
         self.entry_pages.bind("<Return>", lambda _e: self.add_selection())
 
         self.btn_add = ctk.CTkButton(
-            picker, text="Add", width=120, height=36,
+            picker, text=tr(self.lang, "add"), width=120, height=36,
             command=self.add_selection, font=self.btn_font
         )
         self.btn_add.grid(row=1, column=2, padx=16, pady=(0, 10), sticky="e")
 
-        self.lbl_tip = ctk.CTkLabel(
-            picker, text="Tip: Select a PDF first.", text_color=("gray35", "gray75")
-        )
+        self.lbl_tip = ctk.CTkLabel(picker, text=tr(self.lang, "tip_select_pdf"), text_color=("gray35", "gray75"))
         self.lbl_tip.grid(row=2, column=0, columnspan=3, padx=16, pady=(0, 14), sticky="w")
 
         # Main area: list + actions
@@ -500,9 +577,8 @@ class PdfMergePickerCTK(ctk.CTk):
         header.grid(row=0, column=0, sticky="ew", padx=14, pady=(14, 8))
         header.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(header, text="Merge order", font=ctk.CTkFont(size=14, weight="bold")).grid(
-            row=0, column=0, padx=12, pady=10, sticky="w"
-        )
+        self.lbl_merge_title = ctk.CTkLabel(header, text=tr(self.lang, "merge_order"), font=ctk.CTkFont(size=14, weight="bold"))
+        self.lbl_merge_title.grid(row=0, column=0, padx=12, pady=10, sticky="w")
 
         self.badge_total = ctk.CTkLabel(
             header,
@@ -521,8 +597,11 @@ class PdfMergePickerCTK(ctk.CTk):
         hint.grid_columnconfigure(0, weight=1)
         hint.grid_columnconfigure(1, weight=0)
 
-        ctk.CTkLabel(hint, text="PDF", text_color=("gray35", "gray70")).grid(row=0, column=0, sticky="w")
-        ctk.CTkLabel(hint, text="Pages", text_color=("gray35", "gray70")).grid(row=0, column=1, sticky="e")
+        self.lbl_pdf_col = ctk.CTkLabel(hint, text=tr(self.lang, "pdf_col"), text_color=("gray35", "gray70"))
+        self.lbl_pdf_col.grid(row=0, column=0, sticky="w")
+
+        self.lbl_pages_col = ctk.CTkLabel(hint, text=tr(self.lang, "pages_col"), text_color=("gray35", "gray70"))
+        self.lbl_pages_col.grid(row=0, column=1, sticky="e")
 
         self.list_frame = ctk.CTkScrollableFrame(left, corner_radius=12, fg_color=("gray95", "gray15"))
         self.list_frame.grid(row=2, column=0, sticky="nsew", padx=14, pady=(0, 14))
@@ -540,14 +619,14 @@ class PdfMergePickerCTK(ctk.CTk):
         right = ctk.CTkFrame(main, corner_radius=16, width=240, fg_color=("gray97", "gray16"))
         right.grid(row=0, column=1, rowspan=2, sticky="ns", padx=(10, 14), pady=14)
 
-        ctk.CTkLabel(right, text="Actions", font=ctk.CTkFont(size=14, weight="bold")).pack(
-            anchor="w", padx=14, pady=(14, 10)
-        )
+        self.lbl_actions_title = ctk.CTkLabel(right, text=tr(self.lang, "actions"),
+                                              font=ctk.CTkFont(size=14, weight="bold"))
+        self.lbl_actions_title.pack(anchor="w", padx=14, pady=(14, 10))
 
-        self.btn_up = ctk.CTkButton(right, text="Move Up", command=self.move_up, height=36, font=self.btn_font)
-        self.btn_down = ctk.CTkButton(right, text="Move Down", command=self.move_down, height=36, font=self.btn_font)
-        self.btn_remove = ctk.CTkButton(right, text="Remove Selected", command=self.remove_selected, height=36, font=self.btn_font)
-        self.btn_clear = ctk.CTkButton(right, text="Clear All", command=self.clear_all, height=36, font=self.btn_font)
+        self.btn_up = ctk.CTkButton(right, text=tr(self.lang, "move_up"), command=self.move_up, height=36, font=self.btn_font)
+        self.btn_down = ctk.CTkButton(right, text=tr(self.lang, "move_down"), command=self.move_down, height=36, font=self.btn_font)
+        self.btn_remove = ctk.CTkButton(right, text=tr(self.lang, "remove_selected"), command=self.remove_selected, height=36, font=self.btn_font)
+        self.btn_clear = ctk.CTkButton(right, text=tr(self.lang, "clear_all"), command=self.clear_all, height=36, font=self.btn_font)
 
         for b in (self.btn_up, self.btn_down, self.btn_remove, self.btn_clear):
             b.pack(fill="x", padx=14, pady=6)
@@ -555,7 +634,7 @@ class PdfMergePickerCTK(ctk.CTk):
         ctk.CTkLabel(right, text="").pack(pady=6)
 
         self.btn_export = ctk.CTkButton(
-            right, text="Export PDF", height=44,
+            right, text=tr(self.lang, "export_pdf"), height=44,
             command=self.export_pdf, font=self.btn_font
         )
         self.btn_export.configure(font=ctk.CTkFont(size=15, weight="bold"))
@@ -565,10 +644,51 @@ class PdfMergePickerCTK(ctk.CTk):
         # Status bar
         self.status = ctk.CTkLabel(self, text="Ready.", anchor="w", fg_color=("gray92", "gray14"), padx=12)
         self.status.grid(row=3, column=0, sticky="ew")
+        self.apply_language()
 
     # ---------- Actions ----------
     def change_mode(self, mode):
         ctk.set_appearance_mode(mode)
+
+    def change_language(self, value):
+        self.lang = "en" if value == "EN" else "vi"
+        self.apply_language()
+
+    def apply_language(self):
+        # Top
+        self.btn_choose.configure(text=tr(self.lang, "choose_pdf"))
+        self.lbl_lang.configure(text=tr(self.lang, "lang"))
+
+        if not self.current_pdf_path:
+            self.lbl_pdf.configure(text=tr(self.lang, "no_pdf"))
+            self.lbl_tip.configure(text=tr(self.lang, "tip_select_pdf"))
+        else:
+            name = os.path.basename(self.current_pdf_path)
+            self.lbl_tip.configure(text=tr(self.lang, "tip_selected_pdf", name=name, n=self.current_pdf_pages))
+
+        # Picker
+        self.lbl_pick_title.configure(text=tr(self.lang, "pick_pages"))
+        self.lbl_pages_hint.configure(text=tr(self.lang, "pages_hint"))
+        self.entry_pages.configure(placeholder_text=tr(self.lang, ""))
+        self.btn_add.configure(text=tr(self.lang, "add"))
+
+        # Merge + Actions
+        self.lbl_merge_title.configure(text=tr(self.lang, "merge_order"))
+        self.lbl_pdf_col.configure(text=tr(self.lang, "pdf_col"))
+        self.lbl_pages_col.configure(text=tr(self.lang, "pages_col"))
+        self.lbl_actions_title.configure(text=tr(self.lang, "actions"))
+
+        self.btn_up.configure(text=tr(self.lang, "move_up"))
+        self.btn_down.configure(text=tr(self.lang, "move_down"))
+        self.btn_remove.configure(text=tr(self.lang, "remove_selected"))
+        self.btn_clear.configure(text=tr(self.lang, "clear_all"))
+        self.btn_export.configure(text=tr(self.lang, "export_pdf"))
+
+        # Status (chỉ đổi nếu đang là Ready/Sẵn sàng)
+        if self.status.cget("text") in ("Ready.", "Sẵn sàng."):
+            self.status.configure(text=tr(self.lang, "ready"))
+
+        self.refresh_list()
 
     def choose_pdf(self):
         path = filedialog.askopenfilename(title="Choose a PDF", filetypes=[("PDF files", "*.pdf")])
@@ -618,16 +738,16 @@ class PdfMergePickerCTK(ctk.CTk):
         if not self.selections:
             self.empty_label = ctk.CTkLabel(
                 self.list_frame,
-                text="Chưa có selection nào.\nChọn PDF → nhập trang → bấm Add.",
+                text=tr(self.lang, "empty_state") if "empty_state" in LANG[self.lang] else "No selections yet.",
                 text_color=("gray40", "gray70"),
                 justify="center"
             )
             self.empty_label.pack(expand=True, pady=40)
-            self.badge_total.configure(text="Total pages: 0")
+            self.badge_total.configure(text=tr(self.lang, "total_pages", n=0))
             return
 
         total = sum(len(s["pages"]) for s in self.selections)
-        self.badge_total.configure(text=f"Total pages: {total}")
+        self.badge_total.configure(text=tr(self.lang, "total_pages", n=total))
 
         for i, s in enumerate(self.selections):
             pdf_name = os.path.basename(s["path"])
